@@ -123,3 +123,105 @@ Make sure you have [Node.js](https://nodejs.org/) installed.
 
 ### Q4: Why is it important to use Helmet middleware in an Express application?
 **Answer**: Helmet is a collection of middleware functions that set HTTP response headers (like `Content-Security-Policy`, `X-Content-Type-Options`, `Strict-Transport-Security`, etc.) to secure the Express app against common web vulnerabilities (e.g., cross-site scripting (XSS), clickjacking, sniffing attacks).
+
+---
+
+# Module 2: Database Design
+
+This module establishes our MongoDB data structure. We use Mongoose to define schemas, indexes, and relationships for the eCommerce domain.
+
+## 1. Entity-Relationship (ER) Diagram
+
+```mermaid
+erDiagram
+    User ||--o{ Order : "places"
+    User ||--o{ Review : "writes"
+    User ||--|| Cart : "owns"
+    User ||--|| Wishlist : "owns"
+    
+    Category ||--o{ Product : "classifies"
+    
+    Product ||--o{ Review : "receives"
+    Product ||--o{ CartItem : "contained in"
+    Product ||--o{ WishlistItem : "added to"
+    Product ||--o{ OrderItem : "ordered as"
+    
+    Cart ||--o{ CartItem : "contains"
+    Wishlist ||--o{ WishlistItem : "contains"
+    Order ||--o{ OrderItem : "contains"
+```
+
+---
+
+## 2. Schema and Relationship Explanations
+
+### 1. User Model (`backend/models/User.js`)
+- **Type**: Parent entity.
+- **Relationships**:
+  - One-to-Many with `Order` and `Review`.
+  - One-to-One with `Cart` and `Wishlist` (referenced by `user` ObjectId).
+- **Features**: Includes standard validations, lowercase email constraints, and a pre-save mongoose hook to hash user passwords using `bcryptjs`. Exposes a prototype method `comparePassword()` for credential validation.
+
+### 2. Category Model (`backend/models/Category.js`)
+- **Type**: Parent entity.
+- **Relationships**: One-to-Many with `Product`.
+- **Features**: Enforces unique constraints on both category `name` and url-friendly `slug`.
+
+### 3. Product Model (`backend/models/Product.js`)
+- **Type**: Child entity of `Category`.
+- **Relationships**:
+  - Belongs to a single `Category` via `category` ObjectId reference.
+  - One-to-Many with `Review`.
+- **Features**: Enforces pricing bounds (`min: 0`), stock tracking bounds (`quantity`), and ratings averaging metrics.
+
+### 4. Review Model (`backend/models/Review.js`)
+- **Type**: Junction-style entity.
+- **Relationships**: References both a single `User` and a single `Product`.
+- **Features**: Utilizes a compound unique index `{ product: 1, user: 1 }` to enforce that a customer can submit **only one review per product**.
+
+### 5. Cart Model (`backend/models/Cart.js`)
+- **Type**: Direct child of `User`.
+- **Relationships**: One-to-One with `User` and One-to-Many with `Product` (via the embedded `items` array).
+- **Features**: Tracks selection quantities for rapid updates.
+
+### 6. Wishlist Model (`backend/models/Wishlist.js`)
+- **Type**: Direct child of `User`.
+- **Relationships**: One-to-One with `User` and Many-to-Many with `Product` (referencing an array of Product ObjectIds).
+
+### 7. Order Model (`backend/models/Order.js`)
+- **Type**: Complex transaction record.
+- **Relationships**: Belongs to a `User` and captures product snapshots (nested `orderItems` schema containing name, quantity, price, and referenced product).
+- **Features**: Integrates comprehensive financial audit fields (`itemsPrice`, `taxPrice`, `shippingPrice`, `totalPrice`), shipping address maps, delivery/payment status flags, and order status transitions (`Pending` -> `Delivered`).
+
+---
+
+## 3. Testing Steps for Module 2
+To verify that all Mongoose schemas load and compile without issues, you can execute the local schema validation test script:
+1. Navigate to the `backend/` folder:
+   ```bash
+   cd backend
+   ```
+2. Run the temporary verification utility:
+   ```bash
+   node scratch_test_models.js
+   ```
+3. Ensure the output shows confirmation checkboxes for all 7 entities and prints: `⭐ ALL MONGOOSE MODELS HAVE COMPILED & VALIDATED SUCCESSFULLY! ⭐`
+
+---
+
+## 4. Interview Questions (Module 2 Concepts)
+
+### Q1: What is the difference between referencing (normalization) and embedding (denormalization) in MongoDB?
+**Answer**: 
+- **Embedding (Denormalization)** involves nesting documents inside a parent document (like `items` inside the `Cart` schema). It is best for 1-to-1 or bounded 1-to-many relationships where data is read together and does not grow indefinitely (maximum document size in MongoDB is 16MB).
+- **Referencing (Normalization)** stores references (ObjectIds) to separate documents (like `category` inside `Product`). It is ideal for unbound 1-to-many or many-to-many relationships, where referenced entities change independently and are queried in isolation.
+
+### Q2: Why did we define a compound index on the Review schema?
+**Answer**: We configured the compound index `reviewSchema.index({ product: 1, user: 1 }, { unique: true })`. This forces MongoDB to validate that the combination of `product` and `user` is unique, preventing a user from posting multiple reviews/ratings on the same item, ensuring integrity in the product review section.
+
+### Q3: What is the select: false flag in the User password field?
+**Answer**: Setting `select: false` on the password field instructs Mongoose to exclude the password hash field from query results by default (e.g. `User.find()` or `User.findOne()`). This prevents developers from accidentally exposing password hashes in API responses, improving security. If the password is explicitly needed (like during login), it can be retrieved using `.select('+password')`.
+
+### Q4: How does pre-save middleware work in Mongoose?
+**Answer**: Pre-save middleware (e.g., `userSchema.pre('save', ... )`) is a hook that executes asynchronous operations immediately before Mongoose writes the document to MongoDB. In our User model, we use it to check if the `password` field was modified (`this.isModified('password')`), automatically generating a salt and hashing the password with `bcryptjs` before storage.
+
